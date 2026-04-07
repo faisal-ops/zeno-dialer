@@ -1,0 +1,32 @@
+# Built files
+*.apk
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# App build output
+/app/build
+/app/release
+
+# Signing keys — NEVER commit
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+
+# Local config
+local.properties
+
+# Optional local copy of launcher artwork (canonical file is in app/src/main/res/drawable/)
+/mobile.png
+
+# IDE / editor
+*.code-workspace
+.cursor/
