@@ -1,6 +1,6 @@
 # Zeno Dialer
 
-**Stable release: v1.0.0** — Native Android dialer for the **Zinwa Q25**, optimized for square displays (720×720) with a physical keyboard and D-pad.
+**Stable release: v1.0.1** — Native Android dialer for the **Zinwa Q25**, optimized for square displays (720×720) with a physical keyboard and D-pad.
 
 **Repository:** [github.com/faisal-ops/zeno-dialer](https://github.com/faisal-ops/zeno-dialer)
 
@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/faisal-ops/zeno-dialer?style=flat-square&label=release)](https://github.com/faisal-ops/zeno-dialer/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/faisal-ops/zeno-dialer/total?style=flat-square&label=downloads)](https://github.com/faisal-ops/zeno-dialer/releases)
 
-[![Releases](https://img.shields.io/badge/Releases-1.0.0-green?style=for-the-badge)](https://github.com/faisal-ops/zeno-dialer/releases)
+[![Releases](https://img.shields.io/badge/Releases-1.0.1-green?style=for-the-badge)](https://github.com/faisal-ops/zeno-dialer/releases)
 
 ---
 
