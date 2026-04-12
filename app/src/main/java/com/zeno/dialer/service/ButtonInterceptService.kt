@@ -3,9 +3,10 @@ package com.zeno.dialer.service
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.telecom.TelecomManager
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
-import com.zeno.dialer.MainActivity
 
 /**
  * AccessibilityService that intercepts the BB toolbar Call and End hardware
@@ -54,16 +55,21 @@ class ButtonInterceptService : AccessibilityService() {
     override fun onInterrupt() {}
 
     private fun openDefaultDialer() {
-        startActivity(
-            Intent(this, MainActivity::class.java).apply {
-                action = Intent.ACTION_MAIN
-                putExtra(EXTRA_CALL_BUTTON_PRESSED, true)
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                )
-            }
-        )
+        val defaultDialerPkg = getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+        val fallbackIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:")).apply {
+            if (!defaultDialerPkg.isNullOrBlank()) setPackage(defaultDialerPkg)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            startActivity(fallbackIntent)
+        }
     }
 
     companion object {

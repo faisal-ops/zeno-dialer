@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -46,9 +48,10 @@ class MainActivity : ComponentActivity() {
     // True while the system role-picker is on screen — prevents re-launching on the
     // onResume that fires right after the picker is dismissed.
     private var roleRequestInFlight = false
-    // True if the user explicitly cancelled/declined this session. We still show a
-    // banner (see below) but don't force the system picker again until next launch.
-    private var roleDeclinedThisSession = false
+    // True if the user cancelled/declined the role picker this session. Mutable so the
+    // Compose overlay recomposes when we need to show the "Set as default" prompt.
+    // (Do not skip this flow in debug builds — QA needs the same path as release.)
+    private var roleDeclinedThisSession by mutableStateOf(false)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -73,7 +76,7 @@ class MainActivity : ComponentActivity() {
                 return@registerForActivityResult
             }
         } else {
-            // User declined — don't spam the picker again this session
+            // User declined — don't spam the picker again until they tap the prompt below
             roleDeclinedThisSession = true
         }
     }
@@ -119,6 +122,10 @@ class MainActivity : ComponentActivity() {
         viewModel.onPermissionsReady()
 
         val prefs = getSharedPreferences("zeno", MODE_PRIVATE)
+
+        // Default dialer: launchRolePickerIfNeeded() runs for debug and release alike so
+        // ACTION_CALL from Contacts routes here once ROLE_DIALER is held. Avoid an
+        // early return on BuildConfig.DEBUG — that would skip the picker during QA.
 
         // First launch flow: permissions → accessibility prompt → default dialer.
         // Only show accessibility prompt after all permissions are granted.
@@ -388,6 +395,9 @@ class MainActivity : ComponentActivity() {
     private fun DefaultDialerOverlay() {
         val roleManager = getSystemService(RoleManager::class.java)
         if (roleManager.isRoleHeld(RoleManager.ROLE_DIALER)) return
+        // Only after the user dismissed the system role picker without choosing Zeno —
+        // avoids duplicating that UX on first launch while launchRolePickerIfNeeded() runs.
+        if (!roleDeclinedThisSession) return
 
         androidx.compose.foundation.layout.Box(
             modifier = Modifier
@@ -447,7 +457,7 @@ class MainActivity : ComponentActivity() {
                         .clickable {
                             if (!roleRequestInFlight) {
                                 roleRequestInFlight = true
-                                roleDeclinedThisSession = false
+                                roleDeclinedThisSession = false // allow launchRolePickerIfNeeded again if they dismiss twice
                                 roleRequestLauncher.launch(
                                     roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
                                 )

@@ -726,9 +726,7 @@ private fun ContactRow(
             Text(
                 text     = contact.name,
                 color    = nameColor,
-                style    = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                ),
+                style    = contactListPrimaryTextStyle(selected),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -744,7 +742,7 @@ private fun ContactRow(
                 Text(
                     text     = secondaryText,
                     color    = secondaryColor,
-                    style    = MaterialTheme.typography.bodySmall,
+                    style    = contactListSecondaryTextStyle(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

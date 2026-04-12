@@ -1,6 +1,9 @@
 package com.zeno.dialer
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.os.Handler
@@ -166,6 +169,48 @@ class DialerViewModel(application: Application) : AndroidViewModel(application) 
     /** Replace the entire query at once (used by voice search result). */
     fun setQueryDirect(text: String) {
         _uiState.update { it.copy(query = text, cursorPos = text.length, selectedIndex = 0) }
+    }
+
+    fun copyKeypadNumberToClipboard(): Boolean {
+        val text = _uiState.value.query
+        if (text.isEmpty()) return false
+        val app = getApplication<Application>()
+        val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("Phone number", text))
+        return true
+    }
+
+    fun pasteIntoKeypadFromClipboard(): Boolean {
+        val app = getApplication<Application>()
+        val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = cm.primaryClip ?: return false
+        if (clip.itemCount == 0) return false
+        val raw = clip.getItemAt(0).coerceToText(app)?.toString() ?: return false
+        val sanitized = sanitizePastedDialText(raw)
+        if (sanitized.isEmpty()) return false
+        val state = _uiState.value
+        val pos = state.cursorPos.coerceIn(0, state.query.length)
+        val newQuery = state.query.substring(0, pos) + sanitized + state.query.substring(pos)
+        val newCursor = pos + sanitized.length
+        _uiState.update { it.copy(query = newQuery, cursorPos = newCursor) }
+        return true
+    }
+
+    private fun sanitizePastedDialText(raw: String): String {
+        var s = raw.trim().lineSequence().firstOrNull()?.trim().orEmpty()
+        if (s.length >= 4 && s.startsWith("tel:", ignoreCase = true)) {
+            s = s.substring(4).trim()
+        }
+        return buildString {
+            for (c in s) {
+                when {
+                    c.isDigit() -> append(c)
+                    c == '+' || c == '*' || c == '#' -> append(c)
+                    c == ',' || c == ';' -> append(c)
+                    else -> Unit
+                }
+            }
+        }
     }
 
     // ── Selection ────────────────────────────────────────────────────────────

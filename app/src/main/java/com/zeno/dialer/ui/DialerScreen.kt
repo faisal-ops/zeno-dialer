@@ -53,6 +53,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Favorite
@@ -66,6 +68,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import com.zeno.dialer.ui.theme.LocalDialerColors
 import androidx.compose.material3.Text
@@ -87,8 +90,11 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.shadow
 import android.view.HapticFeedbackConstants
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -218,7 +224,11 @@ fun DialerScreen(viewModel: DialerViewModel, requestedTab: DialerTab? = null) {
                             viewModel.setCurrentTab(tabToIndex(DialerTab.KEYPAD))
                         }
                     )
-                    DialerTab.KEYPAD -> KeypadContent(state, viewModel)
+                    DialerTab.KEYPAD -> KeypadContent(
+                        state = state,
+                        viewModel = viewModel,
+                        showClipboardActions = !showCallBanner
+                    )
                 }
             }
 
@@ -507,9 +517,7 @@ private fun SuggestionRow(
                 Text(
                     text     = contact.name,
                     color    = nameColor,
-                    style    = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                    ),
+                    style    = contactListPrimaryTextStyle(selected),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -517,7 +525,7 @@ private fun SuggestionRow(
                 Text(
                     text     = contact.number,
                     color    = secondaryColor,
-                    style    = MaterialTheme.typography.bodySmall,
+                    style    = contactListSecondaryTextStyle(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -568,138 +576,239 @@ private val dialpadKeys = listOf(
 )
 
 @Composable
-private fun KeypadContent(state: DialerUiState, viewModel: DialerViewModel) {
+private fun KeypadContent(
+    state: DialerUiState,
+    viewModel: DialerViewModel,
+    showClipboardActions: Boolean
+) {
     val matched  = state.results.firstOrNull()
     val hasInput = state.query.isNotBlank()
     val canCall  = hasInput
 
     val view = LocalView.current
+    val context = LocalContext.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        // Derive button cell size: fit 3 columns in available width.
-        // Also cap height so the 4-row grid + action row never exceeds available height.
-        val hPad       = 16.dp
-        val cellWidth  = (maxWidth - hPad * 2) / 3
-        // Reserve 64dp for number display + ~64dp for action row
-        val gridHeight  = maxHeight - 64.dp - 64.dp - 8.dp
-        val cellHeight  = gridHeight / 4
-        // Use the smaller dimension so buttons stay square and nothing overflows
-        val cellSize   = minOf(cellWidth, cellHeight)
+        val hPad = 22.dp
+        val colGap = 10.dp
+        // Taller strip when copy/paste shown; compact during active call (keypad from in-call flow).
+        val displayH = if (showClipboardActions) 58.dp else 54.dp
+        val outerBottomPad = 8.dp
+        // Height available for the 5 keypad rows (display is fixed above; pad matches outer Column).
+        val keypadBlockH = maxHeight - displayH - outerBottomPad
+        val rowGap = 8.dp
+        val rowsTotalGap = rowGap * 4
+        val availableForRows = (keypadBlockH - rowsTotalGap).coerceAtLeast(0.dp)
+        // Fill vertical space exactly at most; cap height on tall screens so keys don’t grow huge.
+        val rowHeight = (availableForRows / 5).coerceAtMost(88.dp).coerceAtLeast(40.dp)
 
-        val digitFs   = (cellSize.value * 0.35f).coerceIn(20f, 36f).sp
-        val callBtnSz = (cellSize * 0.85f).coerceIn(48.dp, 72.dp)
-        val backBtnSz = (cellSize * 0.72f).coerceIn(40.dp, 60.dp)
+        val digitFs = (rowHeight.value * 0.36f).coerceIn(22f, 36f).sp
+        val keyCorner = 14.dp
+        val keyShape = RoundedCornerShape(keyCorner)
+        val iconSize = rowHeight * 0.44f
+
+        val keypadQueryTextStyle = TextStyle(
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Light,
+            lineHeight = 28.sp,
+            textAlign = TextAlign.Center,
+            platformStyle = PlatformTextStyle(includeFontPadding = false)
+        )
+        val keypadMatchedNameTextStyle = TextStyle(
+            fontSize = 12.sp,
+            lineHeight = 13.sp,
+            textAlign = TextAlign.Center,
+            platformStyle = PlatformTextStyle(includeFontPadding = false)
+        )
 
         Column(
-            modifier            = Modifier.fillMaxSize().padding(bottom = 4.dp),
+            modifier            = Modifier
+                .fillMaxSize()
+                .padding(bottom = outerBottomPad),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── Number display ────────────────────────────────────────────────
-            Box(
-                modifier         = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text       = if (hasInput) state.query else "",
-                        color      = TextPrimary,
-                        fontSize   = 28.sp,
-                        fontWeight = FontWeight.Light,
-                        textAlign  = TextAlign.Center,
-                        maxLines   = 1,
-                        overflow   = TextOverflow.Ellipsis
-                    )
-                    if (matched != null && hasInput) {
+            // ── Number display; copy/paste only when not using keypad during an active call ──
+            if (showClipboardActions) {
+                Row(
+                    modifier          = Modifier
+                        .fillMaxWidth()
+                        .height(displayH)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            if (viewModel.copyKeypadNumberToClipboard()) {
+                                Toast.makeText(context, "Number copied", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        enabled = hasInput,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.ContentCopy,
+                            contentDescription = "Copy number",
+                            tint               = if (hasInput) TextSecondary else TextHint,
+                            modifier           = Modifier.size(22.dp)
+                        )
+                    }
+                    Column(
+                        modifier            = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text(
-                            text      = matched.name,
-                            color     = TextSecondary,
-                            fontSize  = 13.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines  = 1,
-                            overflow  = TextOverflow.Ellipsis
+                            text     = if (hasInput) state.query else "",
+                            color    = TextPrimary,
+                            style    = keypadQueryTextStyle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (matched != null && hasInput) {
+                            Text(
+                                text     = matched.name,
+                                color    = TextSecondary,
+                                style    = keypadMatchedNameTextStyle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            if (viewModel.pasteIntoKeypadFromClipboard()) {
+                                Toast.makeText(context, "Pasted", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "No number in clipboard", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.ContentPaste,
+                            contentDescription = "Paste number",
+                            tint               = TextSecondary,
+                            modifier           = Modifier.size(22.dp)
                         )
                     }
                 }
-            }
-
-            // ── Dialpad grid ──────────────────────────────────────────────────
-            Column(
-                modifier            = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = hPad),
-                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
-            ) {
-                dialpadKeys.forEach { row ->
-                    Row(
-                        modifier              = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        row.forEach { digit ->
-                            DialpadButton(
-                                digit   = digit,
-                                size    = cellSize * 0.86f,
-                                digitFs = digitFs,
-                                onClick = { viewModel.typeUnicode(digit.code) }
+            } else {
+                Box(
+                    modifier         = Modifier
+                        .fillMaxWidth()
+                        .height(displayH)
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text     = if (hasInput) state.query else "",
+                            color    = TextPrimary,
+                            style    = keypadQueryTextStyle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (matched != null && hasInput) {
+                            Text(
+                                text     = matched.name,
+                                color    = TextSecondary,
+                                style    = keypadMatchedNameTextStyle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
             }
 
-            // ── Bottom row: spacer | Call | Backspace ─────────────────────────
-            Row(
-                modifier              = Modifier
+            // Pin keypad to bottom so extra vertical space sits above the grid (larger keys, less “shrunk”).
+            Box(
+                modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = hPad),
-                horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
-                verticalAlignment     = Alignment.CenterVertically
             ) {
-                // Placeholder to balance the call button
-                Spacer(Modifier.size(backBtnSz))
-
-                // Call button
-                Box(
-                    modifier = Modifier
-                        .size(callBtnSz)
-                        .clip(CircleShape)
-                        .background(if (canCall) AccentGreen else MaterialTheme.colorScheme.surfaceContainerLowest)
-                        .clickable(enabled = canCall) {
-                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                            viewModel.callSelected()
-                        },
-                    contentAlignment = Alignment.Center
+                Column(
+                    modifier            = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = hPad),
+                    verticalArrangement = Arrangement.spacedBy(rowGap)
                 ) {
-                    Icon(
-                        imageVector        = Icons.Default.Phone,
-                        contentDescription = "Call",
-                        tint               = if (canCall) Color.White else TextHint,
-                        modifier           = Modifier.size(callBtnSz * 0.42f)
-                    )
-                }
+                    dialpadKeys.forEach { rowKeys ->
+                        Row(
+                            modifier              = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(colGap)
+                        ) {
+                            rowKeys.forEach { digit ->
+                                DialpadKeyRect(
+                                    digit    = digit,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(rowHeight),
+                                    digitFs  = digitFs,
+                                    corner   = keyCorner,
+                                    onClick  = { viewModel.typeUnicode(digit.code) }
+                                )
+                            }
+                        }
+                    }
 
-                // Backspace button
-                Box(
-                    modifier = Modifier
-                        .size(backBtnSz)
-                        .clip(CircleShape)
-                        .background(BgSurface)
-                        .border(0.75.dp, Border, CircleShape)
-                        .clickable(enabled = hasInput) {
-                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                            viewModel.deleteChar()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector        = Icons.AutoMirrored.Filled.Backspace,
-                        contentDescription = "Delete",
-                        tint               = if (hasInput) TextSecondary else TextHint,
-                        modifier           = Modifier.size(backBtnSz * 0.42f)
-                    )
+                    // Same cell size as digit keys: full width per column, identical height & corner radius.
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(colGap),
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        Spacer(
+                            Modifier
+                                .weight(1f)
+                                .height(rowHeight)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(rowHeight)
+                                .clip(keyShape)
+                                .background(
+                                    if (canCall) AccentGreen
+                                    else MaterialTheme.colorScheme.surfaceContainerLowest
+                                )
+                                .clickable(enabled = canCall) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                    viewModel.callSelected()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector        = Icons.Default.Phone,
+                                contentDescription = "Call",
+                                tint               = if (canCall) Color.White else TextHint,
+                                modifier           = Modifier.size(iconSize)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(rowHeight)
+                                .clip(keyShape)
+                                .background(BgSurface)
+                                .border(1.dp, Border, keyShape)
+                                .clickable(enabled = hasInput) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                    viewModel.deleteChar()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector        = Icons.AutoMirrored.Filled.Backspace,
+                                contentDescription = "Delete",
+                                tint               = if (hasInput) TextSecondary else TextHint,
+                                modifier           = Modifier.size(iconSize)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -707,10 +816,11 @@ private fun KeypadContent(state: DialerUiState, viewModel: DialerViewModel) {
 }
 
 @Composable
-private fun DialpadButton(
+private fun DialpadKeyRect(
     digit: Char,
-    size: Dp,
+    modifier: Modifier,
     digitFs: TextUnit,
+    corner: Dp,
     onClick: () -> Unit
 ) {
     val view = LocalView.current
@@ -718,17 +828,17 @@ private fun DialpadButton(
     val keyBg = if (isLightTheme) Color(0xFFF1F3F4) else Color(0xFF20232B)
     val keyBorder = if (isLightTheme) Color(0xFFDADCE0) else Color(0xFF343844)
     val keyText = if (isLightTheme) Color(0xFF202124) else TextPrimary
+    val shape = RoundedCornerShape(corner)
     Box(
-        modifier         = Modifier
-            .size(size)
+        modifier         = modifier
             .shadow(
                 elevation = if (isLightTheme) 1.5.dp else 0.dp,
-                shape = CircleShape,
+                shape = shape,
                 clip = false
             )
-            .clip(CircleShape)
+            .clip(shape)
             .background(keyBg)
-            .border(1.dp, keyBorder, CircleShape)
+            .border(1.dp, keyBorder, shape)
             .clickable {
                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                 onClick()
@@ -865,7 +975,7 @@ private fun SearchBar(
             Text(
                 text     = if (displayQuery.isEmpty()) "Search contacts" else displayQuery,
                 color    = if (displayQuery.isEmpty()) TextSecondary else TextPrimary,
-                style    = MaterialTheme.typography.bodyLarge,
+                style    = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -957,48 +1067,55 @@ private fun ReturnToCallBanner(info: ActiveCallInfo, onClick: () -> Unit, onEndC
         Call.STATE_DIALING -> "Calling…"
         else               -> "In call"
     }
+    // Compact bar — vertical space goes to tab content (keypad rows grow via BoxWithConstraints).
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF1A2E1A))
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
             verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier              = Modifier.weight(1f)
         ) {
             Icon(
                 imageVector        = Icons.Default.Phone,
                 contentDescription = null,
                 tint               = AccentGreenBright,
-                modifier           = Modifier.size(18.dp)
+                modifier           = Modifier.size(12.dp)
             )
             Column {
                 Text(
                     text       = info.displayName,
                     color      = Color(0xFFCCFFCC),
-                    fontSize   = 13.sp,
+                    fontSize   = 11.sp,
                     fontWeight = FontWeight.Medium,
+                    lineHeight = 13.sp,
                     maxLines   = 1,
                     overflow   = TextOverflow.Ellipsis
                 )
-                Text(text = stateText, color = Color(0xFF66BB66), fontSize = 11.sp)
+                Text(
+                    text       = stateText,
+                    color      = Color(0xFF66BB66),
+                    fontSize   = 9.sp,
+                    lineHeight = 11.sp
+                )
             }
         }
         Text(
             text       = "End Call",
             color      = Color(0xFFCC4444),
-            fontSize   = 12.sp,
+            fontSize   = 9.sp,
             fontWeight = FontWeight.SemiBold,
             modifier   = Modifier
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF3A1A1A))
                 .clickable { onEndCall() }
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
 }
